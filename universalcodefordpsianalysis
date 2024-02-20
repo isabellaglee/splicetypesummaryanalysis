@@ -1,0 +1,103 @@
+#loading libraries
+library(dplyr)
+library(readr)
+library(ggplot2)
+
+#setting variables for cell lines/proteins
+#cell_line <- "HepG2"
+protein <- "U2AF"
+suffixes <- list("2")
+cell_lines <- list("HepG2")
+
+#for loops to run through each protein and cell line
+for(suffix in suffixes){
+  for(cell_line in cell_lines){
+
+#file path trial
+    file_path_test<-paste(paste0("/Volumes/jonesylab/Projects/CurrentLabMembers/Isabella_Lee/majiq_data/", protein,"/", protein, suffix,"/", cell_line,"/output/modulized/alt3and5prime.tsv"))
+
+#setting if loop to make sure protein and cell line combination exists
+    if(file.exists(file_path_test)){
+      
+#setting file directories and working directory
+    mydir<- paste(paste0("/Volumes/jonesylab/Projects/CurrentLabMembers/Isabella_Lee/majiq_data/", protein,"/", protein, suffix,"/", cell_line,"/output/"))
+    modulizeddir<- paste(paste0("/Volumes/jonesylab/Projects/CurrentLabMembers/Isabella_Lee/majiq_data/", protein,"/", protein, suffix,"/", cell_line,"/output/modulized/"))
+    setwd(modulizeddir)
+    graph_directory<- paste(paste0("/Volumes/jonesylab/Projects/CurrentLabMembers/Isabella_Lee/majiq_data/", protein,"/graphs/"))
+      
+#reading lncRNA list, storing in new data frame
+    lncRNA_compare <- read.table(
+      paste0(mydir,"lncRNAlist.tsv"),
+      header = T,
+      stringsAsFactors = F,
+      sep = ","
+    )
+    head(lncRNA_compare)
+
+#gathering tsv data, storing in new data frame
+    modulized_TSV <- list.files(modulizeddir, pattern = "[.]tsv")
+    print(modulized_TSV) 
+
+#filter lncRNAs found in protein and create csvs 
+    for (i in 1:length(modulized_TSV)) {
+      spliced_data <- read.table(file.path(modulizeddir, modulized_TSV[i]), skip = 9, header = TRUE, fill = TRUE)
+      lncRNA_gene_ids <- merge(spliced_data, lncRNA_compare, by = "gene_id")
+      distinct_lncRNA_gene_ids <- distinct(lncRNA_gene_ids)
+      write.csv(distinct_lncRNA_gene_ids, file = paste0(modulized_TSV[i], ".csv"))
+    }
+
+#locating lncRNA csv files, storing in new data frame
+    lncRNA_csv <- list.files(modulizeddir, pattern = "[.]csv")
+#excluding summary
+    lncRNA_csv <- lncRNA_csv[ !grepl("summary.tsv.csv", lncRNA_csv)]
+    print(lncRNA_csv)
+
+#creating variable for column we want to analyze
+    dpsi <- paste0("control_sh_", protein, suffix, "_", cell_line, ".sh_", protein, suffix,"_", cell_line, "_het_median_dpsi")
+#pvalue <- paste0
+
+#creating data frame with lncRNA counts
+    data_counts_sig <- data.frame(File = character(),lncRNA_Count = numeric(),stringsAsFactors = FALSE)
+
+#first go through everything in lncRNA_csv for csv files. Then, read all csv and temporarily hold as lncRNAsplicetype. Next, we only want to count the gene_id column and put them
+#in a temporary list called justgeneids. Next, R goes the justgeneids and count the rows which are just geneids as well as add the numeric under each category. 
+    for(i in 1:length(lncRNA_csv)){
+      lncRNAsplicedtype <- read.csv(paste0(modulizeddir, lncRNA_csv[i]), header = T, sep = ",")
+      sig_dpsi_values <- lncRNAsplicedtype[lncRNAsplicedtype[dpsi] >= 0.2, ]
+      just_gene_ids_sig <- sig_dpsi_values$gene_id
+      file_counts_sig <- data.frame(File = rep(lncRNA_csv[i]), lncRNA_count = length(just_gene_ids_sig))
+      data_counts_sig <- rbind(data_counts_sig, file_counts_sig)
+    }
+    print(data_counts_sig)
+    
+#getting rid of unused rows (multi-exon spanning, other, summary)
+    splicetype_summary <- data_counts_sig[-c(8,9,10),]
+    splicetype_summary
+
+#adding column to act as row names
+    splicetype_summary <- mutate(splicetype_summary, Events = c("Alternative 3 & 5 Prime", "Alternative 3 Prime", "Alternative 5 Prime", "Alternate First Exon", "Alternate Last Exon", "Alternative Intron", "Cassette", "Mutually Exclusive", "Orphan Junction", "Putative Alt. 3 Prime", "Putative Alt. 5 Prime", "Putative Alternate First Exon", "Putative Alternate Last Exon", "Tandem Cassette"))
+    print(splicetype_summary)
+
+#plotting the data
+    splicetype_summary_graph <- ggplot(splicetype_summary, aes(x = Events, y= lncRNA_count, fill= Events)) + 
+      scale_fill_manual(values = c("palegreen4", "palegreen3", "palegreen2", "cadetblue4", "cadetblue3", "cadetblue1","indianred4", "indianred3", "indianred1","gold1", "lightgoldenrod1", "palegreen4","palegreen3","cadetblue4", "cadetblue3", "indianred2"))+
+      geom_bar(stat = "identity") +
+      theme_linedraw() +
+      labs(title = paste0("Splicing Events in ", protein,  suffix, " in the ", cell_line, " Cell Line by LncRNA Count"), subtitle = "Significance Threshold: dpsi ≥ 0.2", x = "Splicing Event", y = "LncRNA Count")+
+      theme(text=element_text(family="Times New Roman"), axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+      geom_text(aes(label = lncRNA_count), nudge_y = 0.35, family = "Times New Roman", size = 3.5) +
+      scale_y_continuous(expand = expansion(mult = c(0,0.05)))
+    splicetype_summary_graph
+#saving the graph
+    ggsave(filename = paste0(protein, suffix, "_", cell_line, ".png"),
+           plot = splicetype_summary_graph,
+           device = "png",
+           path = graph_directory,
+           height = 6, width = 6, units = "in")
+    }
+    else{
+      print("no analysis necessary")
+    }
+  }
+}
+print("done :P")
